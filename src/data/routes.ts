@@ -69,8 +69,12 @@ const ROUTE_CODES: [string, string][] = [
 
 export interface FlightArc {
   id: string;
-  /** 'trail' is the faint route line; 'plane' is the light travelling along it. */
-  kind: 'trail' | 'plane' | 'inbound';
+  /**
+   * 'trail' is the faint route line and 'plane' the light travelling along it;
+   * 'inbound' converges on the country being read about; 'trip' is the
+   * traveller's own planned route.
+   */
+  kind: 'trail' | 'plane' | 'inbound' | 'trip';
   startLat: number;
   startLng: number;
   endLat: number;

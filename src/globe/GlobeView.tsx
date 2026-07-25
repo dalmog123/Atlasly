@@ -7,8 +7,11 @@ import { feature } from 'topojson-client';
 import type { Topology } from 'topojson-specification';
 import type { FeatureCollection, Geometry } from 'geojson';
 import { byPolygonId, markerDestinations } from '../data/destinations';
+import { placesIn } from '../data/places';
+import type { Place } from '../data/places';
 import { AMBIENT_FLIGHTS, inboundFlights } from '../data/routes';
 import type { FlightArc } from '../data/routes';
+import type { Stop } from '../hooks/useTrip';
 import type { LiveAircraft } from '../services/flights';
 import type { Destination } from '../data/types';
 import { createCloudsMaterial, createGlobeMaterial } from './materials';
@@ -42,12 +45,24 @@ const prefersReducedMotion = () =>
 export interface GlobeHandle {
   /** Animate the camera to a country. */
   flyTo: (destination: Destination, altitude?: number) => void;
+  /** Animate the camera to an exact point — a city or a landmark. */
+  flyToPoint: (lat: number, lng: number, altitude?: number) => void;
   resetView: () => void;
   /** Pull back and spin hard for a moment — the wind-up before a random pick. */
   spin: (durationMs: number) => void;
 }
 
 export type FlightsMode = 'routes' | 'live' | 'off';
+
+/** A globe label: either a place inside the selected country, or a trip stop. */
+interface GlobeLabel {
+  id: string;
+  text: string;
+  lat: number;
+  lng: number;
+  isStop: boolean;
+  place?: Place;
+}
 
 interface Props {
   ref?: RefObject<GlobeHandle | null>;
@@ -58,8 +73,10 @@ interface Props {
   discovered: Set<string>;
   flightsMode: FlightsMode;
   liveAircraft: LiveAircraft[];
+  tripStops: Stop[];
   onHover: (destination: Destination | null) => void;
   onSelect: (destination: Destination | null) => void;
+  onSelectPlace: (place: Place) => void;
   onReady: () => void;
 }
 
@@ -153,8 +170,10 @@ export function GlobeView({
   discovered,
   flightsMode,
   liveAircraft,
+  tripStops,
   onHover,
   onSelect,
+  onSelectPlace,
   onReady,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -205,6 +224,7 @@ export function GlobeView({
       const [lat, lng] = destination.latlng;
       moveCamera({ lat, lng, altitude }, 1400);
     },
+    flyToPoint: (lat, lng, altitude = 0.6) => moveCamera({ lat, lng, altitude }, 1400),
     resetView: () => moveCamera({ altitude: 2.4 }, 1000),
     spin: (durationMs) => {
       const current = globeRef.current?.pointOfView();
@@ -333,17 +353,62 @@ export function GlobeView({
   // Air traffic: ambient routes always, plus arcs converging on the country
   // being read about, so "how would I even get there" has a visible answer.
   const arcs = useMemo(() => {
-    if (flightsMode === 'off') return [];
+    // The planned route always shows — it is the traveller's own line.
+    const trip: FlightArc[] = tripStops.slice(1).map((stop, index) => {
+      const from = tripStops[index];
+      return {
+        id: `trip-${from.key}-${stop.key}`,
+        kind: 'trip',
+        startLat: from.lat,
+        startLng: from.lng,
+        endLat: stop.lat,
+        endLng: stop.lng,
+        label: `${index + 1}. ${from.name} → ${stop.name}`,
+        duration: 5,
+        initialGap: index * 0.12,
+      };
+    });
+
+    if (flightsMode === 'off') return trip;
     const inbound = selected ? inboundFlights(selected.latlng[0], selected.latlng[1]) : [];
-    return flightsMode === 'live' ? inbound : [...AMBIENT_FLIGHTS, ...inbound];
-  }, [flightsMode, selected]);
+    return flightsMode === 'live' ? [...trip, ...inbound] : [...trip, ...AMBIENT_FLIGHTS, ...inbound];
+  }, [flightsMode, selected, tripStops]);
 
   const arcColor = useCallback((obj: object) => {
     const arc = obj as FlightArc;
+    if (arc.kind === 'trip') return ['rgba(251, 191, 36, 0.85)', 'rgba(253, 224, 71, 1)', 'rgba(251, 191, 36, 0.85)'];
     if (arc.kind === 'inbound') return ['rgba(94, 234, 212, 0)', 'rgba(94, 234, 212, 0.95)', 'rgba(94, 234, 212, 0)'];
     if (arc.kind === 'trail') return ['rgba(125, 211, 252, 0.08)', 'rgba(125, 211, 252, 0.34)', 'rgba(125, 211, 252, 0.08)'];
     return ['rgba(255, 255, 255, 0)', 'rgba(240, 249, 255, 1)', 'rgba(255, 255, 255, 0)'];
   }, []);
+
+  // Places show for the country being read about, and for every trip stop, so
+  // an itinerary stays legible while exploring somewhere else.
+  const labels = useMemo<GlobeLabel[]>(() => {
+    const stopKeys = new Set(tripStops.map((stop) => stop.key));
+    const fromTrip: GlobeLabel[] = tripStops.map((stop, index) => ({
+      id: `stop-${stop.key}`,
+      text: `${index + 1} · ${stop.name}`,
+      lat: stop.lat,
+      lng: stop.lng,
+      isStop: true,
+    }));
+
+    const fromCountry: GlobeLabel[] = selected
+      ? placesIn(selected.cca3)
+          .filter((place) => !stopKeys.has(`p:${place.id}`))
+          .map((place) => ({
+            id: place.id,
+            text: place.name,
+            lat: place.lat,
+            lng: place.lng,
+            isStop: false,
+            place,
+          }))
+      : [];
+
+    return [...fromCountry, ...fromTrip];
+  }, [selected, tripStops]);
 
   // Shift the planet clear of the country panel instead of hiding behind it.
   const globeOffset = useMemo((): [number, number] => {
@@ -430,13 +495,27 @@ export function GlobeView({
           arcEndLng="endLng"
           arcColor={arcColor}
           arcAltitudeAutoScale={0.2}
-          arcStroke={(obj) => ((obj as FlightArc).kind === 'trail' ? 0.16 : 0.42)}
-          arcDashLength={(obj) => ((obj as FlightArc).kind === 'trail' ? 1 : 0.06)}
-          arcDashGap={(obj) => ((obj as FlightArc).kind === 'trail' ? 0 : 1.6)}
+          arcStroke={(obj) => {
+            const kind = (obj as FlightArc).kind;
+            if (kind === 'trip') return 0.55;
+            return kind === 'trail' ? 0.16 : 0.42;
+          }}
+          arcDashLength={(obj) => {
+            const kind = (obj as FlightArc).kind;
+            if (kind === 'trip') return 0.4;
+            return kind === 'trail' ? 1 : 0.06;
+          }}
+          arcDashGap={(obj) => {
+            const kind = (obj as FlightArc).kind;
+            if (kind === 'trip') return 0.12;
+            return kind === 'trail' ? 0 : 1.6;
+          }}
           arcDashInitialGap="initialGap"
-          arcDashAnimateTime={(obj) =>
-            (obj as FlightArc).kind === 'trail' ? 0 : (obj as FlightArc).duration * 1000
-          }
+          arcDashAnimateTime={(obj) => {
+            const arc = obj as FlightArc;
+            if (arc.kind === 'trail') return 0;
+            return arc.duration * 1000;
+          }}
           arcLabel={(obj) => `<div class="globe-tip"><span>${(obj as FlightArc).label}</span></div>`}
           arcsTransitionDuration={300}
           pointsData={flightsMode === 'live' ? liveAircraft : []}
@@ -447,6 +526,20 @@ export function GlobeView({
           pointColor={() => 'rgba(253, 224, 71, 0.92)'}
           pointsMerge
           pointsTransitionDuration={0}
+          labelsData={labels}
+          labelLat="lat"
+          labelLng="lng"
+          labelText="text"
+          labelSize={(obj) => ((obj as GlobeLabel).isStop ? 0.42 : 0.32)}
+          labelDotRadius={(obj) => ((obj as GlobeLabel).isStop ? 0.3 : 0.2)}
+          labelColor={(obj) => ((obj as GlobeLabel).isStop ? 'rgba(253, 224, 71, 0.95)' : 'rgba(190, 232, 255, 0.82)')}
+          labelAltitude={0.012}
+          labelResolution={2}
+          labelsTransitionDuration={250}
+          onLabelClick={(obj) => {
+            const label = obj as GlobeLabel;
+            if (label.place) onSelectPlace(label.place);
+          }}
           htmlElementsData={markers}
           htmlLat="lat"
           htmlLng="lng"

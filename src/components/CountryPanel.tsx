@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { byCode } from '../data/destinations';
+import { PLACE_ICONS, PLACE_LABELS, placesIn } from '../data/places';
+import { placeStop } from '../hooks/useTrip';
 import { shareUrl } from '../hooks/useCountryUrl';
 import {
   ACCESS_LABEL,
@@ -24,6 +26,10 @@ interface Props {
   onSelectCode: (code: string) => void;
   onSimilar: (destination: Destination) => void;
   onClose: () => void;
+  /** Trip planning: which stops are already in the itinerary, and how to change it. */
+  inTrip: (key: string) => boolean;
+  onToggleStop: (key: string) => void;
+  onAddCountry: (destination: Destination) => void;
 }
 
 const currentMonth = () => new Date().getMonth() + 1;
@@ -44,9 +50,13 @@ export function CountryPanel({
   onSelectCode,
   onSimilar,
   onClose,
+  inTrip,
+  onToggleStop,
+  onAddCountry,
 }: Props) {
   const [shared, setShared] = useState(false);
   const month = currentMonth();
+  const places = placesIn(d.cca3);
 
   const share = async () => {
     const url = shareUrl(d);
@@ -114,6 +124,55 @@ export function CountryPanel({
             </ol>
           </section>
         )}
+
+        <section className="section">
+          <h3>Add to your trip</h3>
+          {places.length === 0 ? (
+            <>
+              <p className="rules-group__hint">
+                No individual stops are mapped here yet — add the country itself and refine it later.
+              </p>
+              <button className="button button--ghost" onClick={() => onAddCountry(d)}>
+                Add {d.name} to the trip
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="rules-group__hint">
+                Cities, heritage sites and wild places — tap to drop them into your route.
+              </p>
+              <ul className="places">
+              {places.map((place) => {
+                const key = placeStop(place);
+                const added = inTrip(key);
+                return (
+                  <li key={place.id}>
+                    <button
+                      className={`place ${added ? 'is-added' : ''}`}
+                      onClick={() => onToggleStop(key)}
+                      aria-pressed={added}
+                    >
+                      <span className="place__icon" aria-hidden="true">
+                        {PLACE_ICONS[place.kind]}
+                      </span>
+                      <span className="place__text">
+                        <span className="place__name">{place.name}</span>
+                        <span className="place__kind">{PLACE_LABELS[place.kind]}</span>
+                      </span>
+                      <span className="place__action" aria-hidden="true">
+                        {added ? '✓' : '+'}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+              </ul>
+              <button className="button button--ghost" onClick={() => onAddCountry(d)}>
+                Add all of {d.name} to the trip
+              </button>
+            </>
+          )}
+        </section>
 
         {d.food.length > 0 && (
           <section className="section">

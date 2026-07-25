@@ -30,6 +30,12 @@ Most travel sites start with *"where do you want to go?"* Atlasly starts with
   trip length, ease of entry, safety, and what's good right now.
 - **A passport.** Countries you open are remembered, with progress by region,
   plus a list of the ones you starred for later.
+- **Cities and landmarks.** Opening a country drops its cities, heritage sites
+  and natural wonders onto the globe as labels you can click.
+- **A trip planner.** Stitch countries, cities and landmarks into an ordered
+  route. It draws itself across the globe as a gold line, totals the distance
+  and time in the air, reorders by hand, and copies out as a link or as plain
+  text you can paste anywhere.
 - **Shareable finds.** The country you're looking at lives in the URL, so back
   and forward walk your discoveries and the share button hands one to a friend.
 
@@ -46,6 +52,14 @@ npm run preview  # serve the production build
 ```
 
 Requires Node 20+.
+
+### Deploying
+
+The repo ships a `vercel.json`, so importing it into Vercel needs no
+configuration — framework, build command and output directory are all set.
+Everything the globe needs is generated during the build from packaged
+dependencies, so there is nothing to upload and no environment variables to
+set. Any static host works: `npm run build` and serve `dist/`.
 
 ## How it's put together
 
@@ -79,6 +93,7 @@ scripts/check-data.mjs     Validates all 196 travel profiles
 src/globe/                 Globe component, shaders, subsolar-point maths
 src/data/profiles/         The travel writing — one file per continent
 src/data/filters.ts        Discovery rules engine
+src/data/places.ts         Geolocated cities, heritage sites and wild places
 src/data/routes.ts         Airports and the ambient flight network
 src/services/              Wikivoyage and OpenSky clients
 src/components/            Country panel, travel guide, rules, passport

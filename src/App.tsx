@@ -8,11 +8,15 @@ import type { FilterSelection } from './data/filters';
 import type { Destination } from './data/types';
 import { GlobeView } from './globe/GlobeView';
 import type { FlightsMode, GlobeHandle } from './globe/GlobeView';
+import { TripPanel } from './components/TripPanel';
 import { countryFromUrl, useCountryUrl } from './hooks/useCountryUrl';
 import { useLiveFlights } from './hooks/useLiveFlights';
 import { usePersistentSet } from './hooks/usePersistentSet';
+import { placeStop, useTrip } from './hooks/useTrip';
+import type { Stop } from './hooks/useTrip';
+import type { Place } from './data/places';
 
-type Drawer = 'rules' | 'passport' | null;
+type Drawer = 'rules' | 'passport' | 'trip' | null;
 
 const SPIN_MS = 900;
 
@@ -52,6 +56,7 @@ export default function App() {
 
   const discovered = usePersistentSet('atlasly:discovered');
   const saved = usePersistentSet('atlasly:saved');
+  const trip = useTrip();
 
   const ruleCount = countSelected(selection);
   const matches = useMemo(() => filterDestinations(destinations, selection), [selection]);
@@ -118,6 +123,23 @@ export default function App() {
     [surprise],
   );
 
+  /** Clicking a place on the globe drops it straight into the itinerary. */
+  const toggleStop = trip.toggle;
+  const addPlace = useCallback(
+    (place: Place) => {
+      toggleStop(placeStop(place));
+    },
+    [toggleStop],
+  );
+
+  const focusStop = useCallback(
+    (stop: Stop) => {
+      globeRef.current?.flyToPoint(stop.lat, stop.lng, 0.55);
+      setSelected(stop.country);
+    },
+    [],
+  );
+
   const toggleFilter = useCallback((groupId: string, optionId: string) => {
     setSelection((current) => {
       const chosen = current[groupId] ?? [];
@@ -161,8 +183,10 @@ export default function App() {
         discovered={discovered.codes}
         flightsMode={effectiveFlights}
         liveAircraft={live.aircraft}
+        tripStops={trip.stops}
         onHover={setHovered}
         onSelect={select}
+        onSelectPlace={addPlace}
         onReady={() => setReady(true)}
       />
 
@@ -233,6 +257,13 @@ export default function App() {
         >
           {spinning ? 'Spinning the globe…' : 'Surprise me'}
         </button>
+        <button
+          className={`button button--ghost ${trip.stops.length ? 'is-active' : ''}`}
+          onClick={() => setDrawer(drawer === 'trip' ? null : 'trip')}
+          aria-expanded={drawer === 'trip'}
+        >
+          Trip{trip.stops.length > 0 && <span className="badge badge--warm">{trip.stops.length}</span>}
+        </button>
         {selected && (
           <button
             className="button button--ghost"
@@ -271,6 +302,9 @@ export default function App() {
           onToggleSave={saved.toggle}
           onSelectCode={selectByCode}
           onSimilar={showSimilar}
+          inTrip={trip.has}
+          onToggleStop={trip.toggle}
+          onAddCountry={trip.addCountryWithPlaces}
           onClose={() => {
             setSelected(null);
             globeRef.current?.resetView();
@@ -288,6 +322,20 @@ export default function App() {
             setDrawer(null);
             surprise();
           }}
+          onClose={() => setDrawer(null)}
+        />
+      )}
+
+      {drawer === 'trip' && (
+        <TripPanel
+          stops={trip.stops}
+          stats={trip.stats}
+          onFocus={focusStop}
+          onRemove={trip.remove}
+          onMove={trip.move}
+          onClear={trip.clear}
+          shareUrl={trip.shareUrl}
+          asText={trip.asText}
           onClose={() => setDrawer(null)}
         />
       )}
