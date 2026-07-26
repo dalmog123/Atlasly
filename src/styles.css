@@ -5,7 +5,12 @@
   --accent: #5eead4;
   --accent-2: #38bdf8;
   --warm: #fbbf24;
-  --panel: rgba(8, 13, 27, 0.78);
+  /* Panels are near-opaque by default. A translucent panel over a globe that
+     redraws every frame forces the compositor to re-blur that whole region every
+     frame too — on a phone that is a bigger power draw than the 3D scene. The
+     blur is switched back on below for pointer devices, where it is cheap. */
+  --panel: rgba(8, 13, 27, 0.94);
+  --panel-blur: none;
   --panel-solid: #080d1b;
   --border: rgba(148, 197, 255, 0.16);
   --border-strong: rgba(148, 197, 255, 0.32);
@@ -14,6 +19,14 @@
   --ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --display: ui-serif, Georgia, 'Times New Roman', serif;
   color-scheme: dark;
+}
+
+/* Pointer devices are plugged in, or at least have a fan: give them the glass. */
+@media (pointer: fine) {
+  :root {
+    --panel: rgba(8, 13, 27, 0.78);
+    --panel-blur: blur(16px);
+  }
 }
 
 * {
@@ -166,7 +179,7 @@ a {
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--panel);
-  backdrop-filter: blur(14px);
+  backdrop-filter: var(--panel-blur);
   color: var(--muted);
   transition: border-color 180ms ease, color 180ms ease, transform 180ms ease;
 }
@@ -217,7 +230,7 @@ a {
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--panel);
-  backdrop-filter: blur(14px);
+  backdrop-filter: var(--panel-blur);
   transition: border-color 180ms ease, transform 180ms ease;
 }
 
@@ -256,7 +269,7 @@ a {
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--panel);
-  backdrop-filter: blur(16px);
+  backdrop-filter: var(--panel-blur);
   box-shadow: var(--shadow);
   z-index: 4;
   max-width: calc(100vw - 32px);
@@ -405,7 +418,7 @@ a {
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--panel);
-  backdrop-filter: blur(12px);
+  backdrop-filter: var(--panel-blur);
   font-size: 14px;
   z-index: 3;
   pointer-events: none;
@@ -468,7 +481,7 @@ a {
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--panel);
-  backdrop-filter: blur(22px);
+  backdrop-filter: var(--panel-blur);
   box-shadow: var(--shadow);
   z-index: 5;
   overflow: hidden;
@@ -1208,7 +1221,7 @@ a {
   border-radius: 12px;
   border: 1px solid var(--border);
   background: rgba(6, 11, 24, 0.92);
-  backdrop-filter: blur(10px);
+  backdrop-filter: var(--panel-blur);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
   font-family: var(--ui);
   color: var(--ink);

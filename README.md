@@ -122,6 +122,28 @@ writing; **check your government's current travel advisories before booking
 anything**, particularly for countries where the profile mentions conflict or
 restricted access.
 
+## Performance on phones
+
+A globe that redraws every frame is the most expensive thing a browser can do,
+and on a phone the bill arrives as heat rather than as dropped frames. Four
+things keep it cool, chosen per device in `src/globe/deviceProfile.ts`:
+
+- **No backdrop blur on touch devices.** A translucent panel over an animating
+  canvas makes the compositor re-blur that whole region every frame — this cost
+  more than the 3D scene did. Panels are near-opaque on phones and keep the
+  glass look on pointer devices, switched by one CSS variable.
+- **Capped pixel ratio.** Rendering at a device ratio of 3 is nine times the
+  fragment work of 1. Phones render at 1.5, which is indistinguishable on a
+  sphere, with MSAA off and a `low-power` WebGL context.
+- **Half-resolution imagery.** Phones load a `-2k` texture set: 358 KB instead
+  of 1.25 MB, and a quarter of the texture memory.
+- **The render loop sleeps.** Rendering stops when the page is hidden, and when
+  nothing on the globe is moving — no idle spin, no air traffic, no route — it
+  stops until the globe is touched again. Verified at zero frames drawn.
+
+Air traffic is also thinner on phones (18 routes rather than 48), and the
+flights toggle turns it off entirely.
+
 ## Accessibility
 
 The globe itself is a pointer surface, so every part of the experience has a

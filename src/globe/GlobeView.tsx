@@ -14,6 +14,7 @@ import type { FlightArc } from '../data/routes';
 import type { Stop } from '../hooks/useTrip';
 import type { LiveAircraft } from '../services/flights';
 import type { Destination } from '../data/types';
+import { deviceProfile } from './deviceProfile';
 import { createCloudsMaterial, createGlobeMaterial } from './materials';
 import type { SunUniforms } from './materials';
 import { openingView, subsolarPoint } from './sun';
@@ -96,7 +97,7 @@ function useSize(ref: RefObject<HTMLDivElement | null>) {
 }
 
 /** Loads the textures and borders the globe cannot render without. */
-function useGlobeAssets() {
+function useGlobeAssets(textureVariant: string) {
   const [assets, setAssets] = useState<{
     features: CountryFeature[];
     material: THREE.ShaderMaterial;
@@ -126,9 +127,9 @@ function useGlobeAssets() {
         if (!r.ok) throw new Error('Could not load country borders');
         return r.json() as Promise<Topology>;
       }),
-      loadTexture('textures/earth-day.webp'),
-      loadTexture('textures/earth-night.webp'),
-      loadTexture('textures/clouds.webp'),
+      loadTexture(`textures/earth-day${textureVariant}.webp`),
+      loadTexture(`textures/earth-night${textureVariant}.webp`),
+      loadTexture(`textures/clouds${textureVariant}.webp`),
     ])
       .then(([topology, day, night, cloudMap]) => {
         if (cancelled) return;
@@ -157,7 +158,7 @@ function useGlobeAssets() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [textureVariant]);
 
   return { assets, error };
 }
@@ -184,8 +185,9 @@ export function GlobeView({
   onSelectRef.current = onSelect;
   onHoverRef.current = onHover;
 
+  const device = deviceProfile();
   const { width, height } = useSize(containerRef);
-  const { assets, error } = useGlobeAssets();
+  const { assets, error } = useGlobeAssets(device.textureVariant);
 
   /**
    * Camera moves and the idle spin must not run at the same time: OrbitControls'
@@ -246,7 +248,9 @@ export function GlobeView({
     return () => window.clearInterval(timer);
   }, [assets]);
 
-  // Drift the cloud shell so the planet never looks like a still image.
+  // Drift the cloud shell so the planet never looks like a still image. Held
+  // still while the scene is asleep, so it does not jump on waking.
+  const asleep = useRef(false);
   useEffect(() => {
     if (!assets) return;
     let frame = 0;
@@ -254,7 +258,7 @@ export function GlobeView({
     const tick = (now: number) => {
       const delta = (now - last) / 1000;
       last = now;
-      assets.clouds.rotation.y += CLOUD_ROTATION_PER_SECOND * delta;
+      if (!asleep.current) assets.clouds.rotation.y += CLOUD_ROTATION_PER_SECOND * delta;
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -264,6 +268,11 @@ export function GlobeView({
   const handleGlobeReady = useCallback(() => {
     const globe = globeRef.current;
     if (!globe || !assets) return;
+
+    // three-render-objects defaults to a pixel ratio of up to 2. On a phone
+    // that is several million fragments per frame, forever; the sphere looks the
+    // same at 1.5 and the device stays cool enough to hold.
+    globe.renderer().setPixelRatio(device.maxPixelRatio);
 
     const radius = globe.getGlobeRadius();
     assets.clouds.scale.setScalar(radius * (1 + CLOUD_ALTITUDE));
@@ -285,7 +294,21 @@ export function GlobeView({
     // read the camera through this.
     (window as unknown as { __atlaslyGlobe?: GlobeMethods }).__atlaslyGlobe = globe;
     onReady();
-  }, [assets, onReady]);
+  }, [assets, device.maxPixelRatio, onReady]);
+
+  // Nothing needs rendering while the page is in the background. Browsers
+  // throttle rAF for hidden tabs but do not stop it, and a globe left spinning
+  // behind another app is pure battery drain.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      const globe = globeRef.current;
+      if (!globe) return;
+      if (document.hidden) globe.pauseAnimation();
+      else globe.resumeAnimation();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -302,6 +325,52 @@ export function GlobeView({
     const controls = globeRef.current?.controls();
     if (controls) controls.autoRotate = !selected && !prefersReducedMotion();
   }, [selected]);
+
+  /**
+   * A globe with nothing moving on it does not need to be redrawn sixty times a
+   * second. Once the idle spin is off, the sky is empty and no route is drawn,
+   * the render loop stops until the traveller touches the globe again.
+   */
+  const staticScene =
+    (Boolean(selected) || prefersReducedMotion()) && flightsMode === 'off' && tripStops.length < 2;
+
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!globe || !assets) return;
+
+    if (!staticScene) {
+      globe.resumeAnimation();
+      return;
+    }
+
+    let idleTimer = 0;
+    const controls = globe.controls();
+    // Long enough for a camera flight and the damped glide after a drag.
+    const sleepSoon = () => {
+      window.clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(() => {
+        asleep.current = true;
+        globe.pauseAnimation();
+      }, 2500);
+    };
+    const wake = () => {
+      window.clearTimeout(idleTimer);
+      asleep.current = false;
+      globe.resumeAnimation();
+    };
+
+    controls.addEventListener('start', wake);
+    controls.addEventListener('end', sleepSoon);
+    sleepSoon();
+
+    return () => {
+      window.clearTimeout(idleTimer);
+      controls.removeEventListener('start', wake);
+      controls.removeEventListener('end', sleepSoon);
+      asleep.current = false;
+      globe.resumeAnimation();
+    };
+  }, [assets, staticScene]);
 
   const handleZoom = useCallback(
     (pov: { lat: number; lng: number }) => {
@@ -371,8 +440,11 @@ export function GlobeView({
 
     if (flightsMode === 'off') return trip;
     const inbound = selected ? inboundFlights(selected.latlng[0], selected.latlng[1]) : [];
-    return flightsMode === 'live' ? [...trip, ...inbound] : [...trip, ...AMBIENT_FLIGHTS, ...inbound];
-  }, [flightsMode, selected, tripStops]);
+    if (flightsMode === 'live') return [...trip, ...inbound];
+    // Each route is two arc meshes; a phone gets a thinner sky.
+    const ambient = AMBIENT_FLIGHTS.slice(0, device.ambientRoutes * 2);
+    return [...trip, ...ambient, ...inbound];
+  }, [flightsMode, selected, tripStops, device.ambientRoutes]);
 
   const arcColor = useCallback((obj: object) => {
     const arc = obj as FlightArc;
@@ -466,9 +538,10 @@ export function GlobeView({
           width={width}
           height={height}
           animateIn={false}
+          rendererConfig={{ antialias: device.antialias, powerPreference: device.handheld ? 'low-power' : 'default' }}
           globeOffset={globeOffset}
           backgroundColor="rgba(0,0,0,0)"
-          backgroundImageUrl="textures/night-sky.webp"
+          backgroundImageUrl={`textures/night-sky${device.textureVariant}.webp`}
           globeMaterial={assets.material}
           showAtmosphere
           atmosphereColor="#7dd3fc"

@@ -24,7 +24,13 @@ const EXTRA_COUNTRIES = ['VAT', 'PSE', 'XKX', 'TWN'];
 /** Natural Earth omits ISO codes for a few polygons; join those by name instead. */
 const POLYGON_NAME_OVERRIDES = { Kosovo: 'XKX' };
 
-/** [source under node_modules/three-globe/example, output name, max width] */
+/**
+ * [source under node_modules/three-globe/example, output name, max width, opts]
+ *
+ * Each entry is emitted twice: full size for desktop, and a "-2k" half-size
+ * variant that phones load instead — a quarter of the texture memory, which is
+ * the difference between a warm phone and a hot one.
+ */
 const TEXTURES = [
   ['img/earth-blue-marble.jpg', 'earth-day.webp', 4096, { quality: 78 }],
   ['img/earth-night.jpg', 'earth-night.webp', 4096, { quality: 72 }],
@@ -33,8 +39,11 @@ const TEXTURES = [
   ['img/night-sky.png', 'night-sky.webp', 2048, { quality: 70 }],
 ];
 
+/** Half-size variants, named "<base>-2k.webp". */
+const smallName = (name) => name.replace(/\.webp$/, '-2k.webp');
+
 const OUTPUTS = [
-  ...TEXTURES.map(([, name]) => `public/textures/${name}`),
+  ...TEXTURES.flatMap(([, name]) => [`public/textures/${name}`, `public/textures/${smallName(name)}`]),
   'public/data/countries.json',
   'src/data/generated/countries.json',
 ];
@@ -61,15 +70,21 @@ const { default: sharp } = await import('sharp');
 const textureDir = abs('node_modules/three-globe/example');
 for (const [from, name, width, opts] of TEXTURES) {
   const src = path.join(textureDir, from);
-  const dest = abs(`public/textures/${name}`);
   if (!fs.existsSync(src)) throw new Error(`Missing texture source ${src} — reinstall dependencies.`);
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
   const meta = await sharp(src).metadata();
-  await sharp(src)
-    .resize({ width: Math.min(width, meta.width) })
-    .webp(opts)
-    .toFile(dest);
-  console.log(`  public/textures/${name}  (${size(dest)})`);
+
+  for (const [outName, outWidth] of [
+    [name, width],
+    [smallName(name), Math.round(width / 2)],
+  ]) {
+    const dest = abs(`public/textures/${outName}`);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    await sharp(src)
+      .resize({ width: Math.min(outWidth, meta.width) })
+      .webp(opts)
+      .toFile(dest);
+    console.log(`  public/textures/${outName}  (${size(dest)})`);
+  }
 }
 
 // ----------------------------------------------------------------- borders --
