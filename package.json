@@ -8,8 +8,9 @@
   "scripts": {
     "prepare:data": "node scripts/prepare-data.mjs",
     "check:data": "node scripts/check-data.mjs",
+    "check:apis": "node scripts/check-apis.mjs",
     "dev": "npm run prepare:data && vite",
-    "build": "npm run prepare:data && npm run check:data && tsc --noEmit && vite build",
+    "build": "npm run prepare:data && npm run check:data && npm run check:apis && tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
