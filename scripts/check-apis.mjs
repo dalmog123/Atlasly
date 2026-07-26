@@ -36,9 +36,19 @@ const query = (title) =>
 let failures = 0;
 let checked = 0;
 
-for (const title of SAMPLES) {
+for (const [index, title] of SAMPLES.entries()) {
   try {
-    const response = await fetch(query(title), { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    // Space the samples out rather than firing three requests at once.
+    if (index) await new Promise((resolve) => setTimeout(resolve, 1200));
+    // Wikimedia throttles unidentified clients from shared cloud IPs, which is
+    // exactly what a CI build looks like.
+    const response = await fetch(query(title), {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'Atlasly-build-check/0.1 (https://github.com/dalmog123/Atlasly)',
+      },
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = await response.json();
 

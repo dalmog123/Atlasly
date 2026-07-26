@@ -87,9 +87,19 @@ interface QueryResponse {
   query?: { pages?: QueryPage[]; search?: { title: string }[] };
 }
 
+/**
+ * Wikimedia's API etiquette asks clients to identify themselves, and throttles
+ * those that do not. A browser cannot set User-Agent, so the policy provides
+ * Api-User-Agent for exactly this case.
+ */
+const CLIENT_ID = 'Atlasly/0.1 (https://github.com/dalmog123/Atlasly)';
+
 async function callApi(params: Record<string, string>, signal?: AbortSignal): Promise<QueryResponse> {
   const url = `${API}?${new URLSearchParams({ format: 'json', formatversion: '2', origin: '*', ...params })}`;
-  const response = await fetch(url, { signal, headers: { Accept: 'application/json' } });
+  const response = await fetch(url, {
+    signal,
+    headers: { Accept: 'application/json', 'Api-User-Agent': CLIENT_ID },
+  });
   if (!response.ok) throw new Error(`Wikivoyage responded ${response.status}`);
   return (await response.json()) as QueryResponse;
 }
